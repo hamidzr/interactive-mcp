@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fsPromises from 'fs/promises';
@@ -24,6 +24,197 @@ async function cleanupResources(
     fsPromises.unlink(optionsPath).catch(() => {}), // Cleanup options file
     // Potentially add cleanup for other session-related files if needed
   ]);
+}
+
+/**
+ * Get the terminal command and arguments for spawning the UI
+ *
+ * This function implements a flexible terminal detection system that:
+ * 1. First checks the $TERMINAL environment variable for user preference
+ * 2. Provides special handling for popular terminals (Kitty, Alacritty, WezTerm, iTerm2)
+ * 3. Falls back to platform-specific defaults
+ * 4. On Linux, automatically detects available terminals in order of preference
+ *
+ * Supported terminals:
+ * - Kitty: Uses --title and -- separator for clean command execution
+ * - Alacritty: Uses --title and -e for command execution
+ * - WezTerm: Uses start command with -- separator
+ * - iTerm2: Uses AppleScript for window creation (macOS only)
+ * - GNOME Terminal: Uses --title= syntax and -- separator
+ * - Konsole: Uses --title and -e for command execution
+ * - xterm: Uses -title and -e for command execution
+ *
+ * Environment variable usage:
+ * Set $TERMINAL to your preferred terminal executable path:
+ * export TERMINAL=/usr/local/bin/kitty
+ * export TERMINAL=/Applications/Alacritty.app/Contents/MacOS/alacritty
+ *
+ * @param uiScriptPath Path to the UI script
+ * @param sessionId Session ID for the UI
+ * @param tempDir Temporary directory path
+ * @returns Object with command and args, or null if no suitable terminal found
+ */
+function getTerminalCommand(
+  uiScriptPath: string,
+  sessionId: string,
+  tempDir: string,
+): { command: string; args: string[]; shell?: boolean } | null {
+  const platform = os.platform();
+  const nodeCommand = `node "${uiScriptPath}" "${sessionId}" "${tempDir}"`;
+
+  // Check for $TERMINAL environment variable first
+  const terminalEnv = process.env.TERMINAL;
+  if (terminalEnv) {
+    const terminalName = path.basename(terminalEnv).toLowerCase();
+
+    // Special handling for Kitty
+    if (terminalName === 'kitty') {
+      return {
+        command: terminalEnv,
+        args: [
+          '--title',
+          `Interactive MCP Input`,
+          '--',
+          'sh',
+          '-c',
+          nodeCommand,
+        ],
+      };
+    }
+
+    // Special handling for other known terminals
+    if (terminalName === 'alacritty') {
+      return {
+        command: terminalEnv,
+        args: [
+          '--title',
+          'Interactive MCP Input',
+          '-e',
+          'sh',
+          '-c',
+          nodeCommand,
+        ],
+      };
+    }
+
+    if (terminalName === 'wezterm') {
+      return {
+        command: terminalEnv,
+        args: ['start', '--', 'sh', '-c', nodeCommand],
+      };
+    }
+
+    if (terminalName === 'iterm2' || terminalName === 'iterm') {
+      // iTerm2 doesn't have a direct command line interface like others
+      // Fall back to AppleScript approach for iTerm2
+      if (platform === 'darwin') {
+        const escapedNodeCommand = nodeCommand
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"');
+        return {
+          command: `osascript -e 'tell application "iTerm2" to create window with default profile command "${escapedNodeCommand}"'`,
+          args: [],
+          shell: true,
+        };
+      }
+    }
+
+    // Generic terminal support - try common patterns
+    // Most terminals support -e for executing commands
+    return {
+      command: terminalEnv,
+      args: ['-e', 'sh', '-c', nodeCommand],
+    };
+  }
+
+  // Platform-specific fallbacks when $TERMINAL is not set
+  if (platform === 'darwin') {
+    // macOS - use Terminal.app via AppleScript
+    const escapedNodeCommand = `exec ${nodeCommand}; exit 0`
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"');
+
+    return {
+      command: `osascript -e 'tell application "Terminal" to activate' -e 'tell application "Terminal" to do script "${escapedNodeCommand}"'`,
+      args: [],
+      shell: true,
+    };
+  } else if (platform === 'linux') {
+    // Linux - try common terminals in order of preference
+    const terminals = [
+      {
+        cmd: 'kitty',
+        args: [
+          '--title',
+          'Interactive MCP Input',
+          '--',
+          'sh',
+          '-c',
+          nodeCommand,
+        ],
+      },
+      {
+        cmd: 'alacritty',
+        args: [
+          '--title',
+          'Interactive MCP Input',
+          '-e',
+          'sh',
+          '-c',
+          nodeCommand,
+        ],
+      },
+      {
+        cmd: 'gnome-terminal',
+        args: ['--title=Interactive MCP Input', '--', 'sh', '-c', nodeCommand],
+      },
+      {
+        cmd: 'konsole',
+        args: [
+          '--title',
+          'Interactive MCP Input',
+          '-e',
+          'sh',
+          '-c',
+          nodeCommand,
+        ],
+      },
+      {
+        cmd: 'xterm',
+        args: [
+          '-title',
+          'Interactive MCP Input',
+          '-e',
+          'sh',
+          '-c',
+          nodeCommand,
+        ],
+      },
+    ];
+
+    // Try to find an available terminal
+    for (const terminal of terminals) {
+      try {
+        // Check if the terminal is available
+        execSync(`which ${terminal.cmd}`, { stdio: 'ignore' });
+        return {
+          command: terminal.cmd,
+          args: terminal.args,
+        };
+      } catch {
+        // Terminal not found, try next one
+        continue;
+      }
+    }
+  } else if (platform === 'win32') {
+    // Windows - use cmd or PowerShell
+    return {
+      command: 'cmd',
+      args: ['/c', 'start', 'cmd', '/k', nodeCommand],
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -84,50 +275,26 @@ export async function getCmdWindowInput(
           'utf8',
         );
 
-        // Platform-specific spawning
-        const platform = os.platform();
+        // Get terminal command using the new function
+        const terminalCmd = getTerminalCommand(
+          uiScriptPath,
+          sessionId,
+          tempDir,
+        );
 
-        if (platform === 'darwin') {
-          // macOS
-          const escapedScriptPath = uiScriptPath;
-          const escapedSessionId = sessionId; // Only need sessionId now
-
-          // Construct the command string directly for the shell. Quotes handle paths with spaces.
-          // Pass only the sessionId
-          const nodeCommand = `exec node "${escapedScriptPath}" "${escapedSessionId}" "${tempDir}"; exit 0`;
-
-          // Escape the node command for osascript's AppleScript string:
-          const escapedNodeCommand = nodeCommand
-            .replace(/\\/g, '\\\\') // Escape backslashes
-            .replace(/"/g, '\\"'); // Escape double quotes
-
-          // Activate Terminal first, then do script with exec
-          const command = `osascript -e 'tell application "Terminal" to activate' -e 'tell application "Terminal" to do script "${escapedNodeCommand}"'`;
-          const commandArgs: string[] = [];
-
-          ui = spawn(command, commandArgs, {
-            stdio: ['ignore', 'ignore', 'ignore'],
-            shell: true,
-            detached: true,
-          });
-        } else if (platform === 'win32') {
-          // Windows
-          // Pass only the sessionId
-          ui = spawn('node', [uiScriptPath, sessionId], {
-            stdio: ['ignore', 'ignore', 'ignore'],
-            shell: true,
-            detached: true,
-            windowsHide: false,
-          });
-        } else {
-          // Linux or other
-          // Pass only the sessionId
-          ui = spawn('node', [uiScriptPath, sessionId], {
-            stdio: ['ignore', 'ignore', 'ignore'],
-            shell: true,
-            detached: true,
-          });
+        if (!terminalCmd) {
+          throw new Error(
+            'No suitable terminal found. Please set $TERMINAL environment variable or install a supported terminal.',
+          );
         }
+
+        // Spawn the terminal with the UI
+        ui = spawn(terminalCmd.command, terminalCmd.args, {
+          stdio: ['ignore', 'ignore', 'ignore'],
+          shell: terminalCmd.shell || false,
+          detached: true,
+          ...(os.platform() === 'win32' && { windowsHide: false }),
+        });
 
         let watcher: FSWatcher | null = null;
         let timeoutHandle: NodeJS.Timeout | null = null;

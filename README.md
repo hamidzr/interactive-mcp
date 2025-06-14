@@ -123,6 +123,46 @@ For a smoother experience on macOS using the default `Terminal.app`, consider th
 
 - **(Shell Tab):** Under **"When the shell exits"** (**Terminal > Settings > Profiles > _[Your Profile]_ > Shell**), select **"Close if the shell exited cleanly"** or **"Close the window"**. This helps manage windows when the MCP server starts and stops.
 
+#### Terminal Configuration
+
+The `interactive-mcp` server supports multiple terminal applications and automatically detects the best available option. You can customize which terminal is used by setting the `$TERMINAL` environment variable.
+
+**Supported Terminals:**
+
+- **Kitty** - Modern, GPU-accelerated terminal (recommended)
+- **Alacritty** - Cross-platform, GPU-accelerated terminal
+- **WezTerm** - GPU-accelerated cross-platform terminal
+- **iTerm2** - Popular macOS terminal (via AppleScript)
+- **GNOME Terminal** - Default terminal for GNOME desktop
+- **Konsole** - KDE's terminal emulator
+- **xterm** - Classic X11 terminal
+
+**Setting Your Preferred Terminal:**
+
+```bash
+# For Kitty
+export TERMINAL=/usr/local/bin/kitty
+
+# For Alacritty on macOS
+export TERMINAL=/Applications/Alacritty.app/Contents/MacOS/alacritty
+
+# For Alacritty on Linux
+export TERMINAL=/usr/bin/alacritty
+
+# For WezTerm
+export TERMINAL=/usr/local/bin/wezterm
+```
+
+**Automatic Detection:**
+
+If `$TERMINAL` is not set, the server will automatically detect available terminals in this order of preference:
+
+- **macOS:** Terminal.app (via AppleScript)
+- **Linux:** kitty → alacritty → gnome-terminal → konsole → xterm
+- **Windows:** Command Prompt
+
+**Note:** The terminal detection system ensures that interactive prompts appear in a dedicated terminal window, providing a clean separation between the MCP server output and user interaction.
+
 ## Development Setup
 
 This section is primarily for developers looking to modify or contribute to the server. If you just want to _use_ the server with an MCP client, see the "Client Configuration" section above.
