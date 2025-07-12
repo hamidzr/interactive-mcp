@@ -4,6 +4,7 @@ import { ProgressBar } from '@inkjs/ui';
 import fs from 'fs/promises';
 import path from 'path'; // Import path module
 import os from 'os'; // Import os module for tmpdir
+import notifier from 'node-notifier';
 import logger from '../../utils/logger.js';
 import { InteractiveInput } from '../../components/InteractiveInput.js'; // Import shared component
 
@@ -136,11 +137,20 @@ const App: FC<AppProps> = ({ options: appOptions }) => {
   } = appOptions;
 
   const [timeLeft, setTimeLeft] = useState(timeout);
+  const [, forceUpdate] = useState(0);
 
   // Clear console only once on mount
   useEffect(() => {
     console.clear();
-  }, []);
+
+    // Send system notification when input command is triggered
+    notifier.notify({
+      title: 'Interactive MCP - Input Required',
+      message: prompt.length > 100 ? `${prompt.substring(0, 100)}...` : prompt,
+      sound: true,
+      timeout: 5,
+    });
+  }, [prompt]);
 
   // Handle countdown and auto-exit on timeout
   useEffect(() => {
@@ -156,6 +166,11 @@ const App: FC<AppProps> = ({ options: appOptions }) => {
         return prev - 1;
       });
     }, 1000);
+
+    // Add UI refresh timer to update display every 5 seconds
+    const uiRefreshTimer = setInterval(() => {
+      forceUpdate((prev) => prev + 1); // Force re-render every 5 seconds
+    }, 5000);
 
     // Add heartbeat interval
     let heartbeatInterval: NodeJS.Timeout | undefined;
@@ -175,7 +190,7 @@ const App: FC<AppProps> = ({ options: appOptions }) => {
           ) {
             try {
               await fs.writeFile(heartbeatFile, '', 'utf8');
-            } catch (createErr) {
+            } catch {
               // Ignore errors creating heartbeat file (e.g., permissions)
             }
           } else {
@@ -187,6 +202,7 @@ const App: FC<AppProps> = ({ options: appOptions }) => {
 
     return () => {
       clearInterval(timer);
+      clearInterval(uiRefreshTimer);
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
       }

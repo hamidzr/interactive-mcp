@@ -4,6 +4,7 @@ import { ProgressBar } from '@inkjs/ui';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import notifier from 'node-notifier';
 import { InteractiveInput } from '../../components/InteractiveInput.js';
 import { USER_INPUT_TIMEOUT_SECONDS } from '../../constants.js'; // Import the constant
 import logger from '../../utils/logger.js';
@@ -79,13 +80,15 @@ process.on('SIGTERM', handleExit);
 process.on('beforeExit', handleExit);
 const App = ({ sessionId, title, outputDir, timeoutSeconds }) => {
   // console.clear(); // Clear console before rendering UI - Removed from here
-  const { exit: appExit } = useApp();
+  const { exit: _appExit } = useApp();
   const [chatHistory, setChatHistory] = useState([]);
   const [currentQuestionId, setCurrentQuestionId] = useState(null);
   const [currentPredefinedOptions, setCurrentPredefinedOptions] =
     useState(undefined);
   const [timeLeft, setTimeLeft] = useState(null); // State for countdown timer
+  const [, forceUpdate] = useState(0); // State to force UI refresh
   const timerRef = useRef(null); // Ref to hold timer ID
+  const uiRefreshTimerRef = useRef(null); // Ref to hold UI refresh timer ID
   // Clear console only once on mount
   useEffect(() => {
     console.clear();
@@ -170,7 +173,7 @@ const App = ({ sessionId, title, outputDir, timeoutSeconds }) => {
           await fs.stat(closeFilePath);
           // If close file exists, exit the process
           handleExit();
-        } catch (_e) {
+        } catch {
           // No close request
         }
       } catch (error) {
@@ -186,6 +189,10 @@ const App = ({ sessionId, title, outputDir, timeoutSeconds }) => {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
+      if (uiRefreshTimerRef.current) {
+        clearInterval(uiRefreshTimerRef.current);
+        uiRefreshTimerRef.current = null;
+      }
       return; // No timer needed or timer expired
     }
     // Start timer if not already running
@@ -194,10 +201,20 @@ const App = ({ sessionId, title, outputDir, timeoutSeconds }) => {
         setTimeLeft((prev) => (prev !== null ? prev - 1 : null));
       }, 1000);
     }
+    // Start UI refresh timer if not already running
+    if (!uiRefreshTimerRef.current) {
+      uiRefreshTimerRef.current = setInterval(() => {
+        forceUpdate((prev) => prev + 1); // Force re-render every 5 seconds
+      }, 5000); // Update UI every 5 seconds
+    }
     // Check if timer reached zero
     if (timeLeft <= 0 && timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+      if (uiRefreshTimerRef.current) {
+        clearInterval(uiRefreshTimerRef.current);
+        uiRefreshTimerRef.current = null;
+      }
       // Auto-submit timeout indicator on timeout
       handleSubmit(currentQuestionId, '__TIMEOUT__');
     }
@@ -207,15 +224,33 @@ const App = ({ sessionId, title, outputDir, timeoutSeconds }) => {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
+      if (uiRefreshTimerRef.current) {
+        clearInterval(uiRefreshTimerRef.current);
+        uiRefreshTimerRef.current = null;
+      }
     };
   }, [timeLeft, currentQuestionId]); // Rerun effect when timeLeft or currentQuestionId changes
   // Add a new question to the chat
   const addNewQuestion = (questionId, questionText, options) => {
     console.clear(); // Clear console before displaying new question
+    // Send system notification
+    notifier.notify({
+      title: 'Interactive MCP - New Question',
+      message:
+        questionText.length > 100
+          ? `${questionText.substring(0, 100)}...`
+          : questionText,
+      sound: true,
+      timeout: 5,
+    });
     // Clear existing timer before starting new one
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+    if (uiRefreshTimerRef.current) {
+      clearInterval(uiRefreshTimerRef.current);
+      uiRefreshTimerRef.current = null;
     }
     setChatHistory((prev) => [
       ...prev,
@@ -234,6 +269,10 @@ const App = ({ sessionId, title, outputDir, timeoutSeconds }) => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+    if (uiRefreshTimerRef.current) {
+      clearInterval(uiRefreshTimerRef.current);
+      uiRefreshTimerRef.current = null;
     }
     setTimeLeft(null); // Reset timer state
     // Update the chat history with the answer
