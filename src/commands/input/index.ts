@@ -63,10 +63,13 @@ function getTerminalCommand(
   const nodeCommand = `node "${uiScriptPath}" "${sessionId}" "${tempDir}"`;
 
   // Check for $TERMINAL environment variable first
-  const terminalEnv = process.env.TERMINAL;
+  let terminalEnv = process.env.TERMINAL;
   if (terminalEnv) {
+    // const macosPrefix = ['open', '-na', terminalEnv || 'Terminal', '--args'];
+    if (terminalEnv.toLowerCase().includes('ghostty')) {
+      terminalEnv = 'alacritty';
+    }
     const terminalName = path.basename(terminalEnv).toLowerCase();
-
     // Special handling for Kitty
     if (terminalName === 'kitty') {
       return {
