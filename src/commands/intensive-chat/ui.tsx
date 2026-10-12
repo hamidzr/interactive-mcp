@@ -1,5 +1,5 @@
 import React, { FC, useState, useEffect, useRef } from 'react';
-import { render, Box, Text, useApp } from 'ink';
+import { render, Box, Text } from 'ink';
 import { ProgressBar } from '@inkjs/ui';
 import fs from 'fs/promises';
 import path from 'path';
@@ -106,7 +106,6 @@ interface AppProps {
 
 const App: FC<AppProps> = ({ sessionId, title, outputDir, timeoutSeconds }) => {
   // console.clear(); // Clear console before rendering UI - Removed from here
-  const { exit: _appExit } = useApp();
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [currentQuestionId, setCurrentQuestionId] = useState<string | null>(
     null,

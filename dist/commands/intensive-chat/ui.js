@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { render, Box, Text, useApp } from 'ink';
+import { render, Box, Text } from 'ink';
 import { ProgressBar } from '@inkjs/ui';
 import fs from 'fs/promises';
 import path from 'path';
@@ -80,7 +80,6 @@ process.on('SIGTERM', handleExit);
 process.on('beforeExit', handleExit);
 const App = ({ sessionId, title, outputDir, timeoutSeconds }) => {
   // console.clear(); // Clear console before rendering UI - Removed from here
-  const { exit: _appExit } = useApp();
   const [chatHistory, setChatHistory] = useState([]);
   const [currentQuestionId, setCurrentQuestionId] = useState(null);
   const [currentPredefinedOptions, setCurrentPredefinedOptions] =
