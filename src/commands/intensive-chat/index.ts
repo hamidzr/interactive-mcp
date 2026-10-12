@@ -35,8 +35,8 @@ async function createSessionDir(): Promise<string> {
   const sessionId = crypto.randomBytes(8).toString('hex');
   const sessionDir = path.join(tempDir, `intensive-chat-${sessionId}`);
 
-  // Create the session directory
-  await fs.mkdir(sessionDir, { recursive: true });
+  // Create the session directory, owner-only so prompts and answers stay private
+  await fs.mkdir(sessionDir, { recursive: true, mode: 0o700 });
 
   return sessionDir;
 }
@@ -176,7 +176,10 @@ export async function askQuestionInSession(
 
   // Write the combined input data to a session-specific JSON file
   const inputFilePath = path.join(session.outputDir, `${sessionId}.json`);
-  await fs.writeFile(inputFilePath, JSON.stringify(inputData), 'utf8');
+  await fs.writeFile(inputFilePath, JSON.stringify(inputData), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
 
   // Wait for the response file corresponding to the generated ID
   const responseFilePath = path.join(
