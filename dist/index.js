@@ -81,13 +81,10 @@ const isToolEnabled = (toolName) => {
   // A tool is enabled if it's present in the filtered capabilities
   return toolName in enabledToolCapabilities;
 };
-// Initialize MCP server with FILTERED capabilities
+// Initialize MCP server; tool capabilities are declared by the filtered registrations below
 const server = new McpServer({
   name: 'Interactive MCP',
   version: '1.0.0',
-  capabilities: {
-    tools: enabledToolCapabilities, // Use the filtered capabilities
-  },
 });
 // Conditionally register tools based on command-line arguments
 if (isToolEnabled('request_user_input')) {

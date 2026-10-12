@@ -11,13 +11,11 @@ import logger from '../../utils/logger.js';
 // Get the directory name of the current module
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Define cleanupResources outside the promise to be accessible in the final catch
-async function cleanupResources(heartbeatPath, responsePath, optionsPath) {
-  await Promise.allSettled([
-    fsPromises.unlink(responsePath).catch(() => {}),
-    fsPromises.unlink(heartbeatPath).catch(() => {}),
-    fsPromises.unlink(optionsPath).catch(() => {}), // Cleanup options file
-    // Potentially add cleanup for other session-related files if needed
-  ]);
+async function cleanupResources(sessionDir) {
+  // session dir holds the options, response and heartbeat files
+  await fsPromises
+    .rm(sessionDir, { recursive: true, force: true })
+    .catch(() => {});
 }
 /**
  * Get the terminal command and arguments for spawning the UI
@@ -217,7 +215,12 @@ export async function getCmdWindowInput(
 ) {
   // Create a temporary file for the detached process to write to
   const sessionId = crypto.randomBytes(8).toString('hex');
-  const tempDir = os.tmpdir();
+  // private per-session dir (0700) so other local users cannot read prompts
+  // or pre-create the response file
+  const tempDir = await fsPromises.mkdtemp(
+    path.join(os.tmpdir(), 'cmd-ui-session-'),
+  );
+  await fsPromises.chmod(tempDir, 0o700);
   const tempFilePath = path.join(tempDir, `cmd-ui-response-${sessionId}.txt`);
   const heartbeatFilePath = path.join(
     tempDir,
@@ -247,11 +250,10 @@ export async function getCmdWindowInput(
       // Moved setup into try block
       try {
         // Write options to the file before spawning
-        await fsPromises.writeFile(
-          optionsFilePath,
-          JSON.stringify(options),
-          'utf8',
-        );
+        await fsPromises.writeFile(optionsFilePath, JSON.stringify(options), {
+          encoding: 'utf8',
+          mode: 0o600,
+        });
         // Get terminal command using the new function
         const terminalCmd = getTerminalCommand(
           uiScriptPath,
@@ -289,12 +291,7 @@ export async function getCmdWindowInput(
             clearTimeout(timeoutHandle);
             timeoutHandle = null;
           }
-          // Pass optionsFilePath to cleanupResources
-          await cleanupResources(
-            heartbeatFilePath,
-            tempFilePath,
-            optionsFilePath,
-          );
+          await cleanupResources(tempDir);
           resolve(response);
         };
         // Listen for process exit events - moved definition before IIFE start
@@ -315,7 +312,10 @@ export async function getCmdWindowInput(
         // Unref the child process so the parent can exit independently
         ui.unref();
         // Create an empty temp file before watching for user response
-        await fsPromises.writeFile(tempFilePath, '', 'utf8'); // Use renamed import
+        await fsPromises.writeFile(tempFilePath, '', {
+          encoding: 'utf8',
+          mode: 0o600,
+        }); // Use renamed import
         // Wait briefly for the heartbeat file to potentially be created
         await new Promise((res) => setTimeout(res, 500));
         // Watch for content being written to the temp file
@@ -403,12 +403,7 @@ export async function getCmdWindowInput(
       } catch (setupError) {
         logger.error('Error during cmd-input setup:', setupError);
         // Ensure cleanup happens even if setup fails
-        // Pass optionsFilePath to cleanupResources
-        await cleanupResources(
-          heartbeatFilePath,
-          tempFilePath,
-          optionsFilePath,
-        );
+        await cleanupResources(tempDir);
         resolve(''); // Resolve with empty string after attempting cleanup
       }
     })(); // Execute the IIFE
